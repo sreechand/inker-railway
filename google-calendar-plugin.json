@@ -1,0 +1,179 @@
+{
+  "name": "Google Calendar",
+  "slug": "google_calendar",
+  "description": "Read-only Google Calendar agenda, week, and month views for e-ink displays.",
+  "icon": "calendar",
+  "category": "productivity",
+  "source": "inker",
+  "isBuiltin": true,
+  "dataStrategy": "polling",
+  "refreshInterval": 300,
+  "version": "1.0.0",
+  "oauthProvider": "google",
+  "oauthScopes": "https://www.googleapis.com/auth/calendar.events.readonly",
+  "settingsSchema": [
+    {
+      "key": "calendar_ids",
+      "label": "Calendar IDs",
+      "type": "text",
+      "default": "primary",
+      "required": true,
+      "description": "Comma-separated calendar IDs. Use primary for your main calendar."
+    },
+    {
+      "key": "layout",
+      "label": "Layout",
+      "type": "select",
+      "default": "upcoming",
+      "options": [
+        {
+          "label": "Agenda (today)",
+          "value": "agenda"
+        },
+        {
+          "label": "Upcoming",
+          "value": "upcoming"
+        },
+        {
+          "label": "Week",
+          "value": "week"
+        },
+        {
+          "label": "Month",
+          "value": "month"
+        }
+      ]
+    },
+    {
+      "key": "days_ahead",
+      "label": "Days ahead",
+      "type": "number",
+      "default": 14,
+      "description": "Used by Upcoming view (1–31)."
+    },
+    {
+      "key": "max_events",
+      "label": "Maximum events",
+      "type": "number",
+      "default": 24,
+      "description": "Limit across all selected calendars (1–100)."
+    },
+    {
+      "key": "time_format",
+      "label": "Time format",
+      "type": "select",
+      "default": "12",
+      "options": [
+        {
+          "label": "AM/PM",
+          "value": "12"
+        },
+        {
+          "label": "24 hours",
+          "value": "24"
+        }
+      ]
+    },
+    {
+      "key": "include_event_time",
+      "label": "Include event time",
+      "type": "select",
+      "default": "yes",
+      "options": [
+        "yes",
+        "no"
+      ]
+    },
+    {
+      "key": "include_description",
+      "label": "Include description",
+      "type": "select",
+      "default": "no",
+      "options": [
+        "yes",
+        "no"
+      ]
+    },
+    {
+      "key": "show_location",
+      "label": "Include location",
+      "type": "select",
+      "default": "no",
+      "options": [
+        "yes",
+        "no"
+      ]
+    },
+    {
+      "key": "include_declined",
+      "label": "Include declined events",
+      "type": "select",
+      "default": "no",
+      "options": [
+        "yes",
+        "no"
+      ]
+    },
+    {
+      "key": "include_past",
+      "label": "Include earlier events today",
+      "type": "select",
+      "default": "no",
+      "options": [
+        "yes",
+        "no"
+      ]
+    },
+    {
+      "key": "ignored_phrases",
+      "label": "Ignored phrases",
+      "type": "text",
+      "default": "",
+      "description": "Comma-separated, case-insensitive partial matches against title and description."
+    },
+    {
+      "key": "week_start",
+      "label": "Week starts on",
+      "type": "select",
+      "default": "sunday",
+      "options": [
+        {
+          "label": "Sunday",
+          "value": "sunday"
+        },
+        {
+          "label": "Monday",
+          "value": "monday"
+        }
+      ]
+    },
+    {
+      "key": "timezone",
+      "label": "Time zone",
+      "type": "text",
+      "default": "",
+      "description": "Optional IANA time zone such as Asia/Kolkata. Blank uses the calendar/API default."
+    },
+    {
+      "key": "privacy_mode",
+      "label": "Event details",
+      "type": "select",
+      "default": "details",
+      "options": [
+        {
+          "label": "Show details",
+          "value": "details"
+        },
+        {
+          "label": "Busy only",
+          "value": "busy_only"
+        }
+      ]
+    }
+  ],
+  "dataTransform": "\nconst token = settings.oauth_access_token;\nif (!token) throw new Error('[auth] Connect Google Calendar before rendering');\nconst clamp = (value, min, max, fallback) => Math.min(max, Math.max(min, Number(value) || fallback));\nconst layout = settings.layout || 'upcoming';\nconst daysAhead = layout === 'agenda' ? 1 : layout === 'week' ? 7 : layout === 'month' ? 42 : clamp(settings.days_ahead, 1, 31, 14);\nconst maxEvents = clamp(settings.max_events, 1, 100, 24);\nconst calendarIds = String(settings.calendar_ids || 'primary').split(',').map(v => v.trim()).filter(Boolean).slice(0, 10);\nconst ignored = String(settings.ignored_phrases || '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);\nconst now = new Date();\nconst start = new Date(now);\nif (layout === 'month') start.setDate(1);\nif (settings.include_past !== 'yes') start.setTime(Math.max(start.getTime(), now.getTime()));\nelse start.setHours(0, 0, 0, 0);\nlet end = new Date(start);\nif (layout === 'month') end = new Date(start.getFullYear(), start.getMonth() + 1, 7);\nelse end.setDate(end.getDate() + daysAhead);\nconst params = new URLSearchParams({\n  timeMin: start.toISOString(), timeMax: end.toISOString(), singleEvents: 'true', orderBy: 'startTime',\n  maxResults: String(Math.min(250, maxEvents * 3)), showDeleted: 'false',\n});\nif (settings.timezone) params.set('timeZone', String(settings.timezone));\nconst headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };\nconst batches = await Promise.all(calendarIds.map(async calendarId => {\n  const url = 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(calendarId) + '/events?' + params;\n  const response = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });\n  if (!response.ok) {\n    const detail = await response.text();\n    throw new Error('Google Calendar HTTP ' + response.status + ': ' + detail.slice(0, 160));\n  }\n  const json = await response.json();\n  return (json.items || []).map(event => ({ ...event, _calendar_id: calendarId }));\n}));\nconst tz = settings.timezone || undefined;\nconst dateKey = d => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);\nconst dateLabel = d => new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(d);\nconst timeLabel = d => new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: settings.time_format !== '24' }).format(d);\nlet events = batches.flat().filter(event => {\n  if (event.status === 'cancelled') return false;\n  if (settings.include_declined !== 'yes' && (event.attendees || []).some(a => a.self && a.responseStatus === 'declined')) return false;\n  const haystack = ((event.summary || '') + ' ' + (event.description || '')).toLowerCase();\n  return !ignored.some(phrase => haystack.includes(phrase));\n}).map(event => {\n  const allDay = Boolean(event.start && event.start.date);\n  const startsAt = new Date(allDay ? event.start.date + 'T00:00:00' : event.start.dateTime);\n  const endsAt = new Date(allDay ? event.end.date + 'T00:00:00' : event.end.dateTime);\n  const hidden = settings.privacy_mode === 'busy_only' || event.visibility === 'private';\n  return {\n    id: event.id, calendar_id: event._calendar_id, title: hidden ? 'Busy' : (event.summary || 'Untitled event'),\n    description: hidden ? '' : String(event.description || '').replace(/\\s+/g, ' ').trim(),\n    location: hidden ? '' : String(event.location || ''), all_day: allDay,\n    start_ms: startsAt.getTime(), end_ms: endsAt.getTime(), date_key: dateKey(startsAt), date_label: dateLabel(startsAt),\n    display_time: allDay ? 'All day' : timeLabel(startsAt) + '\\u2013' + timeLabel(endsAt),\n  };\n}).sort((a, b) => a.start_ms - b.start_ms).slice(0, maxEvents);\nconst byDate = new Map();\nfor (const event of events) {\n  if (!byDate.has(event.date_key)) byDate.set(event.date_key, []);\n  byDate.get(event.date_key).push(event);\n}\nconst dayCount = layout === 'agenda' ? 1 : layout === 'week' ? 7 : Math.min(daysAhead, 14);\nconst dayCursor = new Date(now); dayCursor.setHours(0, 0, 0, 0);\nconst days = [];\nfor (let i = 0; i < dayCount; i++) {\n  const d = new Date(dayCursor); d.setDate(d.getDate() + i);\n  const key = dateKey(d); days.push({ key, label: dateLabel(d), is_today: i === 0, events: byDate.get(key) || [] });\n}\nconst monthBase = new Date(now.getFullYear(), now.getMonth(), 1);\nconst offset = (monthBase.getDay() - (settings.week_start === 'monday' ? 1 : 0) + 7) % 7;\nconst gridStart = new Date(monthBase); gridStart.setDate(gridStart.getDate() - offset);\nconst month_days = [];\nfor (let i = 0; i < 42; i++) {\n  const d = new Date(gridStart); d.setDate(d.getDate() + i); const key = dateKey(d);\n  month_days.push({ day: d.getDate(), key, in_month: d.getMonth() === monthBase.getMonth(), is_today: key === dateKey(now), events: byDate.get(key) || [] });\n}\nconst weekdays = settings.week_start === 'monday' ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];\nreturn {\n  events, days, month_days, weekdays, layout,\n  month_label: new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'long', year: 'numeric' }).format(monthBase),\n  generated_at: now.toISOString(), calendar_count: calendarIds.length,\n};\n",
+  "markupFull": "<div class=\"view view--full gcal\"><style>\n  .gcal{font-family:Inter,Arial,sans-serif;color:#111;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#fff}\n  .gcal *{box-sizing:border-box}.gcal-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px solid #111;padding:12px 18px 8px}\n  .gcal-head h1{font-size:27px;line-height:1;margin:0}.gcal-meta{font-size:12px;font-weight:600}.gcal-body{padding:8px 18px;height:calc(100% - 58px);overflow:hidden}\n  .day{display:grid;grid-template-columns:118px 1fr;gap:12px;border-bottom:1px solid #bbb;padding:7px 0}.day-label{font-size:15px;font-weight:750}.today .day-label{background:#111;color:#fff;padding:3px 6px;width:max-content}\n  .event{display:grid;grid-template-columns:108px 1fr;gap:8px;margin-bottom:5px;min-width:0}.event-time{font-size:12px;font-weight:650}.event-title{font-size:15px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n  .event-detail{font-size:11px;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.empty{font-size:13px;color:#666;font-style:italic}\n  .month{display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:24px repeat(6,1fr);height:100%;border-left:1px solid #999;border-top:1px solid #999}.weekday{text-align:center;font-weight:750;font-size:12px;padding:4px;border-right:1px solid #999;border-bottom:1px solid #999}\n  .month-day{min-width:0;overflow:hidden;padding:3px 4px;border-right:1px solid #999;border-bottom:1px solid #999}.month-day.muted{color:#aaa}.day-number{font-size:12px;font-weight:750}.day-number.today{display:inline-block;background:#111;color:#fff;border-radius:50%;width:19px;height:19px;line-height:19px;text-align:center}\n  .month-event{font-size:9px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid #111;padding-left:3px;margin-top:2px;color:#111}\n</style><header class=\"gcal-head\"><h1>{% if layout == 'month' %}{{ month_label }}{% else %}Calendar{% endif %}</h1><span class=\"gcal-meta\">{{ calendar_count }} calendar{% if calendar_count != 1 %}s{% endif %}</span></header><main class=\"gcal-body\">{% if layout == 'month' %}<div class=\"month\">{% for weekday in weekdays %}<div class=\"weekday\">{{ weekday }}</div>{% endfor %}{% for day in month_days %}<div class=\"month-day{% unless day.in_month %} muted{% endunless %}\"><span class=\"day-number{% if day.is_today %} today{% endif %}\">{{ day.day }}</span>{% for event in day.events limit: 3 %}<div class=\"month-event\">{{ event.title }}</div>{% endfor %}</div>{% endfor %}</div>{% else %}{% for day in days %}<section class=\"day{% if day.is_today %} today{% endif %}\"><div class=\"day-label\">{{ day.label }}</div><div>{% if day.events.size == 0 %}<div class=\"empty\">No events</div>{% endif %}{% for event in day.events %}<article class=\"event\"><div class=\"event-time\">{% if settings.include_event_time != 'no' %}{{ event.display_time }}{% endif %}</div><div><div class=\"event-title\">{{ event.title }}</div>{% if settings.include_description == 'yes' and event.description != '' %}<div class=\"event-detail\">{{ event.description }}</div>{% endif %}{% if settings.show_location == 'yes' and event.location != '' %}<div class=\"event-detail\">{{ event.location }}</div>{% endif %}</div></article>{% endfor %}</div></section>{% endfor %}{% endif %}</main></div>",
+  "markupHalfHorizontal": "<div class=\"view view--half_horizontal gcal\"><style>\n  .gcal{font-family:Inter,Arial,sans-serif;color:#111;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#fff}\n  .gcal *{box-sizing:border-box}.gcal-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px solid #111;padding:12px 18px 8px}\n  .gcal-head h1{font-size:27px;line-height:1;margin:0}.gcal-meta{font-size:12px;font-weight:600}.gcal-body{padding:8px 18px;height:calc(100% - 58px);overflow:hidden}\n  .day{display:grid;grid-template-columns:118px 1fr;gap:12px;border-bottom:1px solid #bbb;padding:7px 0}.day-label{font-size:15px;font-weight:750}.today .day-label{background:#111;color:#fff;padding:3px 6px;width:max-content}\n  .event{display:grid;grid-template-columns:108px 1fr;gap:8px;margin-bottom:5px;min-width:0}.event-time{font-size:12px;font-weight:650}.event-title{font-size:15px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n  .event-detail{font-size:11px;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.empty{font-size:13px;color:#666;font-style:italic}\n  .month{display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:24px repeat(6,1fr);height:100%;border-left:1px solid #999;border-top:1px solid #999}.weekday{text-align:center;font-weight:750;font-size:12px;padding:4px;border-right:1px solid #999;border-bottom:1px solid #999}\n  .month-day{min-width:0;overflow:hidden;padding:3px 4px;border-right:1px solid #999;border-bottom:1px solid #999}.month-day.muted{color:#aaa}.day-number{font-size:12px;font-weight:750}.day-number.today{display:inline-block;background:#111;color:#fff;border-radius:50%;width:19px;height:19px;line-height:19px;text-align:center}\n  .month-event{font-size:9px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid #111;padding-left:3px;margin-top:2px;color:#111}\n</style><style>.gcal-head{padding:7px 10px 5px}.gcal-head h1{font-size:19px}.gcal-body{padding:5px 10px;height:calc(100% - 40px)}.day{grid-template-columns:82px 1fr;padding:4px 0;gap:6px}.day-label,.event-title{font-size:11px}.event{grid-template-columns:70px 1fr;margin-bottom:3px}.event-time,.gcal-meta{font-size:9px}.event-detail{display:none}</style><header class=\"gcal-head\"><h1>{% if layout == 'month' %}{{ month_label }}{% else %}Calendar{% endif %}</h1><span class=\"gcal-meta\">{{ events.size }} events</span></header><main class=\"gcal-body\">{% if layout == 'month' %}<div class=\"month\">{% for weekday in weekdays %}<div class=\"weekday\">{{ weekday }}</div>{% endfor %}{% for day in month_days %}<div class=\"month-day{% unless day.in_month %} muted{% endunless %}\"><span class=\"day-number{% if day.is_today %} today{% endif %}\">{{ day.day }}</span>{% for event in day.events limit: 3 %}<div class=\"month-event\">{{ event.title }}</div>{% endfor %}</div>{% endfor %}</div>{% else %}{% for day in days %}<section class=\"day{% if day.is_today %} today{% endif %}\"><div class=\"day-label\">{{ day.label }}</div><div>{% if day.events.size == 0 %}<div class=\"empty\">No events</div>{% endif %}{% for event in day.events %}<article class=\"event\"><div class=\"event-time\">{% if settings.include_event_time != 'no' %}{{ event.display_time }}{% endif %}</div><div><div class=\"event-title\">{{ event.title }}</div>{% if settings.include_description == 'yes' and event.description != '' %}<div class=\"event-detail\">{{ event.description }}</div>{% endif %}{% if settings.show_location == 'yes' and event.location != '' %}<div class=\"event-detail\">{{ event.location }}</div>{% endif %}</div></article>{% endfor %}</div></section>{% endfor %}{% endif %}</main></div>",
+  "markupHalfVertical": "<div class=\"view view--half_vertical gcal\"><style>\n  .gcal{font-family:Inter,Arial,sans-serif;color:#111;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#fff}\n  .gcal *{box-sizing:border-box}.gcal-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px solid #111;padding:12px 18px 8px}\n  .gcal-head h1{font-size:27px;line-height:1;margin:0}.gcal-meta{font-size:12px;font-weight:600}.gcal-body{padding:8px 18px;height:calc(100% - 58px);overflow:hidden}\n  .day{display:grid;grid-template-columns:118px 1fr;gap:12px;border-bottom:1px solid #bbb;padding:7px 0}.day-label{font-size:15px;font-weight:750}.today .day-label{background:#111;color:#fff;padding:3px 6px;width:max-content}\n  .event{display:grid;grid-template-columns:108px 1fr;gap:8px;margin-bottom:5px;min-width:0}.event-time{font-size:12px;font-weight:650}.event-title{font-size:15px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n  .event-detail{font-size:11px;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.empty{font-size:13px;color:#666;font-style:italic}\n  .month{display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:24px repeat(6,1fr);height:100%;border-left:1px solid #999;border-top:1px solid #999}.weekday{text-align:center;font-weight:750;font-size:12px;padding:4px;border-right:1px solid #999;border-bottom:1px solid #999}\n  .month-day{min-width:0;overflow:hidden;padding:3px 4px;border-right:1px solid #999;border-bottom:1px solid #999}.month-day.muted{color:#aaa}.day-number{font-size:12px;font-weight:750}.day-number.today{display:inline-block;background:#111;color:#fff;border-radius:50%;width:19px;height:19px;line-height:19px;text-align:center}\n  .month-event{font-size:9px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid #111;padding-left:3px;margin-top:2px;color:#111}\n</style><style>.gcal-head{padding:7px 10px 5px}.gcal-head h1{font-size:19px}.gcal-body{padding:5px 10px;height:calc(100% - 40px)}.day{grid-template-columns:82px 1fr;padding:4px 0;gap:6px}.day-label,.event-title{font-size:11px}.event{grid-template-columns:70px 1fr;margin-bottom:3px}.event-time,.gcal-meta{font-size:9px}.event-detail{display:none}</style><style>.day{display:block}.day-label{margin-bottom:4px}.event{grid-template-columns:68px 1fr}.month-event{font-size:7px}</style><header class=\"gcal-head\"><h1>{% if layout == 'month' %}{{ month_label }}{% else %}Calendar{% endif %}</h1></header><main class=\"gcal-body\">{% if layout == 'month' %}<div class=\"month\">{% for weekday in weekdays %}<div class=\"weekday\">{{ weekday }}</div>{% endfor %}{% for day in month_days %}<div class=\"month-day{% unless day.in_month %} muted{% endunless %}\"><span class=\"day-number{% if day.is_today %} today{% endif %}\">{{ day.day }}</span>{% for event in day.events limit: 3 %}<div class=\"month-event\">{{ event.title }}</div>{% endfor %}</div>{% endfor %}</div>{% else %}{% for day in days %}<section class=\"day{% if day.is_today %} today{% endif %}\"><div class=\"day-label\">{{ day.label }}</div><div>{% if day.events.size == 0 %}<div class=\"empty\">No events</div>{% endif %}{% for event in day.events %}<article class=\"event\"><div class=\"event-time\">{% if settings.include_event_time != 'no' %}{{ event.display_time }}{% endif %}</div><div><div class=\"event-title\">{{ event.title }}</div>{% if settings.include_description == 'yes' and event.description != '' %}<div class=\"event-detail\">{{ event.description }}</div>{% endif %}{% if settings.show_location == 'yes' and event.location != '' %}<div class=\"event-detail\">{{ event.location }}</div>{% endif %}</div></article>{% endfor %}</div></section>{% endfor %}{% endif %}</main></div>",
+  "markupQuadrant": "<div class=\"view view--quadrant gcal\"><style>\n  .gcal{font-family:Inter,Arial,sans-serif;color:#111;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#fff}\n  .gcal *{box-sizing:border-box}.gcal-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px solid #111;padding:12px 18px 8px}\n  .gcal-head h1{font-size:27px;line-height:1;margin:0}.gcal-meta{font-size:12px;font-weight:600}.gcal-body{padding:8px 18px;height:calc(100% - 58px);overflow:hidden}\n  .day{display:grid;grid-template-columns:118px 1fr;gap:12px;border-bottom:1px solid #bbb;padding:7px 0}.day-label{font-size:15px;font-weight:750}.today .day-label{background:#111;color:#fff;padding:3px 6px;width:max-content}\n  .event{display:grid;grid-template-columns:108px 1fr;gap:8px;margin-bottom:5px;min-width:0}.event-time{font-size:12px;font-weight:650}.event-title{font-size:15px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n  .event-detail{font-size:11px;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.empty{font-size:13px;color:#666;font-style:italic}\n  .month{display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:24px repeat(6,1fr);height:100%;border-left:1px solid #999;border-top:1px solid #999}.weekday{text-align:center;font-weight:750;font-size:12px;padding:4px;border-right:1px solid #999;border-bottom:1px solid #999}\n  .month-day{min-width:0;overflow:hidden;padding:3px 4px;border-right:1px solid #999;border-bottom:1px solid #999}.month-day.muted{color:#aaa}.day-number{font-size:12px;font-weight:750}.day-number.today{display:inline-block;background:#111;color:#fff;border-radius:50%;width:19px;height:19px;line-height:19px;text-align:center}\n  .month-event{font-size:9px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid #111;padding-left:3px;margin-top:2px;color:#111}\n</style><style>.gcal-head{padding:7px 10px 5px}.gcal-head h1{font-size:19px}.gcal-body{padding:5px 10px;height:calc(100% - 40px)}.day{grid-template-columns:82px 1fr;padding:4px 0;gap:6px}.day-label,.event-title{font-size:11px}.event{grid-template-columns:70px 1fr;margin-bottom:3px}.event-time,.gcal-meta{font-size:9px}.event-detail{display:none}</style><style>.gcal-head{display:none}.gcal-body{height:100%;padding:7px}.day{display:block}.day-label{margin-bottom:3px}.event{display:block}.event-time{float:left;width:63px}.event-detail{display:none}.month-event{display:none}</style><main class=\"gcal-body\">{% if layout == 'month' %}<div class=\"month\">{% for weekday in weekdays %}<div class=\"weekday\">{{ weekday }}</div>{% endfor %}{% for day in month_days %}<div class=\"month-day{% unless day.in_month %} muted{% endunless %}\"><span class=\"day-number{% if day.is_today %} today{% endif %}\">{{ day.day }}</span>{% for event in day.events limit: 3 %}<div class=\"month-event\">{{ event.title }}</div>{% endfor %}</div>{% endfor %}</div>{% else %}{% for day in days %}<section class=\"day{% if day.is_today %} today{% endif %}\"><div class=\"day-label\">{{ day.label }}</div><div>{% if day.events.size == 0 %}<div class=\"empty\">No events</div>{% endif %}{% for event in day.events %}<article class=\"event\"><div class=\"event-time\">{% if settings.include_event_time != 'no' %}{{ event.display_time }}{% endif %}</div><div><div class=\"event-title\">{{ event.title }}</div>{% if settings.include_description == 'yes' and event.description != '' %}<div class=\"event-detail\">{{ event.description }}</div>{% endif %}{% if settings.show_location == 'yes' and event.location != '' %}<div class=\"event-detail\">{{ event.location }}</div>{% endif %}</div></article>{% endfor %}</div></section>{% endfor %}{% endif %}</main></div>"
+}

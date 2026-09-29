@@ -2,6 +2,8 @@ const fs = require('fs');
 
 const mainPath = process.env.INKER_MAIN_JS || '/app/dist/main.js';
 let source = fs.readFileSync(mainPath, 'utf8');
+const googleCalendarPluginPath = process.env.GOOGLE_CALENDAR_PLUGIN_JSON || '/tmp/google-calendar-plugin.json';
+const googleCalendarPlugin = JSON.parse(fs.readFileSync(googleCalendarPluginPath, 'utf8'));
 
 function replaceOnce(label, from, to) {
   if (source.includes(to)) {
@@ -283,17 +285,31 @@ replaceOnce(
         });`,
 );
 
-replaceOnce(
-  'seed todoist builtin',
-  `const builtins = [this.grafanaPluginDefinition()];`,
-  `const builtins = [this.grafanaPluginDefinition(), ${JSON.stringify(todoistPlugin, null, 12)}];`,
-);
+const todoistBuiltinsSource = `const builtins = [this.grafanaPluginDefinition(), ${JSON.stringify(todoistPlugin, null, 12)}];`;
+const googleBuiltinsSource = `const builtins = [this.grafanaPluginDefinition(), ${JSON.stringify(todoistPlugin, null, 12)}, ${JSON.stringify(googleCalendarPlugin, null, 12)}];`;
+
+if (!source.includes(googleBuiltinsSource)) {
+  replaceOnce(
+    'seed todoist builtin',
+    `const builtins = [this.grafanaPluginDefinition()];`,
+    todoistBuiltinsSource,
+  );
+} else {
+  console.log('seed todoist builtin: already patched');
+}
 
 replaceOnce(
-  'seed builtin update fields',
-  `icon: def.icon,
+  'seed Google Calendar builtin',
+  todoistBuiltinsSource,
+  googleBuiltinsSource,
+);
+
+if (!source.includes('oauthProvider: def.oauthProvider,')) {
+  replaceOnce(
+    'seed builtin update fields',
+    `icon: def.icon,
                     version: def.version,`,
-  `icon: def.icon,
+    `icon: def.icon,
                     version: def.version,
                     name: def.name,
                     category: def.category,
@@ -302,6 +318,28 @@ replaceOnce(
                     isBuiltin: def.isBuiltin,
                     dataStrategy: def.dataStrategy,
                     ...(def.isInstalled !== undefined ? { isInstalled: def.isInstalled } : {}),`,
+  );
+} else {
+  console.log('seed builtin update fields: already patched');
+}
+
+replaceOnce(
+  'seed Google Calendar fields',
+  `dataStrategy: def.dataStrategy,
+                    ...(def.isInstalled !== undefined ? { isInstalled: def.isInstalled } : {}),`,
+  `dataStrategy: def.dataStrategy,
+                    oauthProvider: def.oauthProvider,
+                    oauthScopes: def.oauthScopes,
+                    markupHalfHorizontal: def.markupHalfHorizontal,
+                    markupHalfVertical: def.markupHalfVertical,
+                    markupQuadrant: def.markupQuadrant,
+                    ...(def.isInstalled !== undefined ? { isInstalled: def.isInstalled } : {}),`,
+);
+
+replaceOnce(
+  'least privilege Google Calendar OAuth scope',
+  `scopes: 'https://www.googleapis.com/auth/calendar.readonly',`,
+  `scopes: 'https://www.googleapis.com/auth/calendar.events.readonly',`,
 );
 
 replaceOnce(

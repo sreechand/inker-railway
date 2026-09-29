@@ -1,6 +1,7 @@
 FROM wojooo/inker:0.6.0
 
 COPY patch-inker.js /tmp/patch-inker.js
+COPY google-calendar-plugin.json /tmp/google-calendar-plugin.json
 RUN node /tmp/patch-inker.js
 
 RUN printf '%s\n' \
