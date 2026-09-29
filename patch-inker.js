@@ -257,7 +257,7 @@ replaceOnce(
         return plugins.map((plugin) => {
             const firstInstance = plugin.instances?.[0] || null;
             return {
-                id: widget_constants_1.PLUGIN_TEMPLATE_OFFSET + plugin.id,
+                id: 20000 + plugin.id,
                 name: \`plugin-\${plugin.slug}\`,
                 label: plugin.name,
                 description: plugin.description || '',
