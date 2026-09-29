@@ -5,6 +5,34 @@ let source = fs.readFileSync(mainPath, 'utf8');
 const googleCalendarPluginPath = process.env.GOOGLE_CALENDAR_PLUGIN_JSON || '/tmp/google-calendar-plugin.json';
 const googleCalendarPlugin = JSON.parse(fs.readFileSync(googleCalendarPluginPath, 'utf8'));
 
+function patchResolutionPreset() {
+  const assetsDir = process.env.INKER_FRONTEND_ASSETS || '/usr/share/nginx/html/assets';
+  const from = '{label:"TRMNL X Portrait",width:1404,height:1872,description:"1404 x 1872 px (portrait)"}';
+  const to = '{label:"Kindle Voyage",width:1072,height:1448,description:"1072 x 1448 px (portrait)"}';
+  let matched = false;
+
+  for (const filename of fs.readdirSync(assetsDir).filter((name) => name.endsWith('.js'))) {
+    const assetPath = `${assetsDir}/${filename}`;
+    const asset = fs.readFileSync(assetPath, 'utf8');
+    if (asset.includes(to)) {
+      console.log(`Kindle Voyage resolution preset: already patched in ${filename}`);
+      matched = true;
+      continue;
+    }
+    if (!asset.includes(from)) continue;
+
+    fs.writeFileSync(assetPath, asset.replace(from, to));
+    console.log(`Kindle Voyage resolution preset: patched in ${filename}`);
+    matched = true;
+  }
+
+  if (!matched) {
+    throw new Error('Kindle Voyage resolution preset: could not find expected frontend source block');
+  }
+}
+
+patchResolutionPreset();
+
 function replaceOnce(label, from, to) {
   if (source.includes(to)) {
     console.log(`${label}: already patched`);
