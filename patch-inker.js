@@ -45,6 +45,18 @@ function replaceOnce(label, from, to) {
   console.log(`${label}: patched`);
 }
 
+replaceOnce(
+  'display image base URL',
+  `const apiUrl = baseUrl || this.config.get('api.url', 'http://localhost:3002');`,
+  `const apiUrl = (baseUrl || this.config.get('api.url', 'http://localhost:3002')).replace(/\\/api\\/?$/, '');`,
+);
+
+replaceOnce(
+  'setup image base URL',
+  `const apiUrl = baseUrl || process.env.API_URL || 'http://localhost:3002';`,
+  `const apiUrl = (baseUrl || process.env.API_URL || 'http://localhost:3002').replace(/\\/api\\/?$/, '');`,
+);
+
 const todoistDataTransform = `const token = settings.api_token;
 if (!token) throw new Error('Missing Todoist API token');
 const query = settings.query || 'today | overdue';
